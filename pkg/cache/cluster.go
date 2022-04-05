@@ -29,8 +29,8 @@ import (
 	"k8s.io/klog/v2/klogr"
 	"k8s.io/kubectl/pkg/util/openapi"
 
-	"github.com/argoproj/gitops-engine/pkg/utils/kube"
-	"github.com/argoproj/gitops-engine/pkg/utils/tracing"
+	"github.com/rkrmr33/gitops-engine/pkg/utils/kube"
+	"github.com/rkrmr33/gitops-engine/pkg/utils/tracing"
 )
 
 const (

@@ -3,8 +3,8 @@
 package mocks
 
 import (
-	cache "github.com/argoproj/gitops-engine/pkg/cache"
-	kube "github.com/argoproj/gitops-engine/pkg/utils/kube"
+	cache "github.com/rkrmr33/gitops-engine/pkg/cache"
+	kube "github.com/rkrmr33/gitops-engine/pkg/utils/kube"
 
 	mock "github.com/stretchr/testify/mock"
 
