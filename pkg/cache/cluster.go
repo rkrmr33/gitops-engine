@@ -129,7 +129,11 @@ type ListRetryFunc func(err error) bool
 func NewClusterCache(config *rest.Config, opts ...UpdateSettingsFunc) *clusterCache {
 	log := klogr.New()
 	cache := &clusterCache{
-		settings:           Settings{ResourceHealthOverride: &noopSettings{}, ResourcesFilter: &noopSettings{}},
+		settings: Settings{
+			ResourceHealthOverride: &noopSettings{},
+			ResourcesFilter:        &noopSettings{},
+			ObjectFilter:           &noopSettings{},
+		},
 		apisMeta:           make(map[schema.GroupKind]*apiMeta),
 		listPageSize:       defaultListPageSize,
 		listPageBufferSize: defaultListPageBufferSize,
@@ -534,7 +538,7 @@ func (c *clusterCache) watchEvents(ctx context.Context, api kube.APIResourceInfo
 				err := listPager.EachListItem(ctx, metav1.ListOptions{}, func(obj runtime.Object) error {
 					if un, ok := obj.(*unstructured.Unstructured); !ok {
 						return fmt.Errorf("object %s/%s has an unexpected type", un.GroupVersionKind().String(), un.GetName())
-					} else {
+					} else if !c.settings.ObjectFilter.IsExcludedObject(un) {
 						items = append(items, c.newResource(un))
 					}
 					return nil
@@ -737,7 +741,7 @@ func (c *clusterCache) sync() error {
 				return listPager.EachListItem(context.Background(), metav1.ListOptions{}, func(obj runtime.Object) error {
 					if un, ok := obj.(*unstructured.Unstructured); !ok {
 						return fmt.Errorf("object %s/%s has an unexpected type", un.GroupVersionKind().String(), un.GetName())
-					} else {
+					} else if !c.settings.ObjectFilter.IsExcludedObject(un) {
 						lock.Lock()
 						c.setNode(c.newResource(un))
 						lock.Unlock()
@@ -968,6 +972,10 @@ func (c *clusterCache) GetManagedLiveObjs(targetObjs []*unstructured.Unstructure
 }
 
 func (c *clusterCache) processEvent(event watch.EventType, un *unstructured.Unstructured) {
+	if !kube.IsCRD(un) && c.settings.ObjectFilter.IsExcludedObject(un) {
+		return
+	}
+
 	for _, h := range c.getEventHandlers() {
 		h(event, un)
 	}

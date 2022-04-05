@@ -28,12 +28,18 @@ func (f *noopSettings) IsExcludedResource(_, _, _ string) bool {
 	return false
 }
 
+func (f *noopSettings) IsExcludedObject(_ *unstructured.Unstructured) bool {
+	return false
+}
+
 // Settings caching customizations
 type Settings struct {
 	// ResourceHealthOverride contains health assessment overrides
 	ResourceHealthOverride health.HealthOverride
 	// ResourcesFilter holds filter that excludes resources
 	ResourcesFilter kube.ResourceFilter
+	// ObjectFilter filter that excludes specific objects from being cached
+	ObjectFilter kube.ObjectFilter
 }
 
 type UpdateSettingsFunc func(cache *clusterCache)
@@ -55,7 +61,11 @@ func SetPopulateResourceInfoHandler(handler OnPopulateResourceInfoHandler) Updat
 // SetSettings updates caching settings
 func SetSettings(settings Settings) UpdateSettingsFunc {
 	return func(cache *clusterCache) {
-		cache.settings = Settings{settings.ResourceHealthOverride, settings.ResourcesFilter}
+		cache.settings = Settings{
+			settings.ResourceHealthOverride,
+			settings.ResourcesFilter,
+			settings.ObjectFilter,
+		}
 	}
 }
 
