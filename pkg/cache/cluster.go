@@ -57,6 +57,7 @@ const (
 type apiMeta struct {
 	namespaced  bool
 	watchCancel context.CancelFunc
+	gvr         schema.GroupVersionResource
 }
 
 // ClusterInfo holds cluster cache stats
@@ -115,6 +116,10 @@ type ClusterCache interface {
 	OnResourceUpdated(handler OnResourceUpdatedHandler) Unsubscribe
 	// OnEvent register event handler that is executed every time when new K8S event received
 	OnEvent(handler OnEventHandler) Unsubscribe
+	// TrackObject adds a specific object to cache if it doesn't already exist
+	TrackObject(context.Context, kube.ResourceKey) (*Resource, error)
+	// GetResource gets a specific resource from cache
+	GetResource(kube.ResourceKey) (*Resource, error)
 }
 
 type WeightedSemaphore interface {
@@ -461,7 +466,7 @@ func (c *clusterCache) startMissingWatches() error {
 		namespacedResources[api.GroupKind] = api.Meta.Namespaced
 		if _, ok := c.apisMeta[api.GroupKind]; !ok {
 			ctx, cancel := context.WithCancel(context.Background())
-			c.apisMeta[api.GroupKind] = &apiMeta{namespaced: api.Meta.Namespaced, watchCancel: cancel}
+			c.apisMeta[api.GroupKind] = &apiMeta{namespaced: api.Meta.Namespaced, watchCancel: cancel, gvr: api.GroupVersionResource}
 
 			err = c.processApi(client, api, func(resClient dynamic.ResourceInterface, ns string) error {
 				go c.watchEvents(ctx, api, resClient, ns, "")
@@ -731,7 +736,7 @@ func (c *clusterCache) sync() error {
 
 		lock.Lock()
 		ctx, cancel := context.WithCancel(context.Background())
-		info := &apiMeta{namespaced: api.Meta.Namespaced, watchCancel: cancel}
+		info := &apiMeta{namespaced: api.Meta.Namespaced, watchCancel: cancel, gvr: api.GroupVersionResource}
 		c.apisMeta[api.GroupKind] = info
 		c.namespacedResources[api.GroupKind] = api.Meta.Namespaced
 		lock.Unlock()
@@ -765,6 +770,60 @@ func (c *clusterCache) sync() error {
 
 	c.log.Info("Cluster successfully synced")
 	return nil
+}
+
+// TrackObject adds a specific object to cache if it doesn't already exist
+func (c *clusterCache) TrackObject(ctx context.Context, res kube.ResourceKey) (*Resource, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	curRes, ok := c.resources[res]
+	if ok {
+		return curRes, nil
+	}
+
+	meta, ok := c.apisMeta[res.GroupKind()]
+	if !ok {
+		return nil, fmt.Errorf("unknown resource: %s", res.GroupKind().String())
+	}
+
+	client, err := c.kubectl.NewDynamicClient(c.config)
+	if err != nil {
+		return nil, err
+	}
+
+	resClient := client.Resource(meta.gvr)
+	var (
+		u *unstructured.Unstructured
+	)
+
+	if meta.namespaced {
+		u, err = resClient.Namespace(res.Namespace).Get(ctx, res.Name, metav1.GetOptions{})
+	} else {
+		u, err = resClient.Get(ctx, res.Name, metav1.GetOptions{})
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	nres := c.newResource(u)
+	c.resources[res] = nres
+
+	return nres, nil
+}
+
+// GetResource gets a specific resource from cache
+func (c *clusterCache) GetResource(key kube.ResourceKey) (*Resource, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	curRes, ok := c.resources[key]
+	if !ok {
+		return nil, fmt.Errorf("resource not in cache")
+	}
+
+	return curRes, nil
 }
 
 // EnsureSynced checks cache state and synchronizes it if necessary
